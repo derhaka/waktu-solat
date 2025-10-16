@@ -1,71 +1,72 @@
 <!DOCTYPE html>
 <html lang="ms">
 <head>
-  <meta charset="UTF-8">
-  <title>Waktu Solat – Sidam Kiri</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    :root {--bg:#f9fafb;--text:#222;--card:#fff;--border:#eee;--highlight-bg:#dbeafe;--highlight-text:#1e3a8a;}
-    @media (prefers-color-scheme: dark) {
-      :root {--bg:#0f172a;--text:#e2e8f0;--card:#1e293b;--border:#334155;--highlight-bg:#1e3a8a;--highlight-text:#f8fafc;}
-    }
-    body {font-family:Arial,sans-serif;background:var(--bg);color:var(--text);margin:20px;text-align:center;}
-    h1{font-size:1.4em;margin-bottom:0.5em;}
-    #date{opacity:.8;margin-bottom:1em;}
-    #countdown{font-weight:bold;margin:10px 0 15px;}
-    .table{display:inline-block;text-align:left;background:var(--card);border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:15px 25px;}
-    .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);}
-    .row:last-child{border-bottom:none;}
-    .highlight{background:var(--highlight-bg);color:var(--highlight-text);font-weight:700;border-radius:6px;padding:4px 8px;}
-    footer{margin-top:20px;font-size:.8em;opacity:.7;}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waktu Solat Padang Serai</title>
+<style>
+body { font-family: Arial, sans-serif; background:#f5f7fa; text-align:center; padding:20px; }
+h1 { color:#00695c; }
+.card {
+  background:white; max-width:420px; margin:auto; border-radius:12px;
+  padding:15px; box-shadow:0 2px 10px rgba(0,0,0,0.1);
+}
+table { width:100%; border-collapse:collapse; margin-top:10px; }
+th,td { padding:8px; border-bottom:1px solid #eee; }
+th { background:#009688; color:white; }
+</style>
 </head>
 <body>
-<h1>Waktu Solat Harian – Sidam Kiri</h1>
-<div id="date">Memuat data…</div>
-<div id="countdown">–</div>
-<div id="waktuSolat" class="table">Sedang memuat…</div>
-<footer>Sumber: api.waktusolat.app (static JSON)</footer>
+<h1>Waktu Solat Padang Serai</h1>
+<p id="tarikh"></p>
+<div class="card">
+  <table>
+    <thead><tr><th>Waktu</th><th>Masa</th></tr></thead>
+    <tbody id="solat-data"><tr><td colspan="2">Memuat data...</td></tr></tbody>
+  </table>
+</div>
 
 <script>
-let nextPrayerTime=null,nextPrayerName="";
+async function muatData() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth()+1).padStart(2,'0');
+  const day = String(now.getDate()).padStart(2,'0');
+  const today = `${year}-${month}-${day}`;
+  
+  const url = `https://www.e-solat.gov.my/index.php?r=esolatApi/takwimsolat&period=duration&zone=KDH05&year=${year}&month=${month}`;
 
-async function loadWaktuSolat(){
-  try{
-    const res=await fetch("waktu-solat.json");
-    const data=await res.json();
+  document.getElementById("tarikh").textContent = 
+    now.toLocaleDateString("ms-MY", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
 
-    document.getElementById("date").innerText=`${data.date} | ${data.hijri}`;
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    const data = json.prayerTime.find(d => d.date === today);
 
-    const list=[
-      {name:"Imsak",time:data.prayers.imsak},
-      {name:"Subuh",time:data.prayers.subuh},
-      {name:"Syuruk",time:data.prayers.syuruk},
-      {name:"Zohor",time:data.prayers.zohor},
-      {name:"Asar",time:data.prayers.asar},
-      {name:"Maghrib",time:data.prayers.maghrib},
-      {name:"Isyak",time:data.prayers.isyak}
-    ];
+    const tbody = document.getElementById("solat-data");
+    tbody.innerHTML = "";
 
-    const now=new Date();
-    const nowMinutes=now.getHours()*60+now.getMinutes();
-    let next=null,nextTime=null;
-    list.forEach(p=>{
-      const [h,m]=p.time.split(":").map(Number);
-      const total=h*60+m;
-      if(total>nowMinutes && !next){next=p.name;nextTime=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m);}
-    });
-    if(!next){const [h,m]=list[0].time.split(":").map(Number);next=list[0].name;nextTime=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1,h,m);}
-    nextPrayerName=next;nextPrayerTime=nextTime;
+    if (data) {
+      const waktu = ["imsak","fajr","syuruk","dhuhr","asr","maghrib","isha"];
+      const nama = ["Imsak","Subuh","Syuruk","Zohor","Asar","Maghrib","Isyak"];
+      waktu.forEach((k,i)=>{
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${nama[i]}</td><td>${data[k]}</td>`;
+        tbody.appendChild(row);
+      });
+    } else {
+      tbody.innerHTML = `<tr><td colspan="2">Tiada data untuk tarikh ini.</td></tr>`;
+    }
 
-    document.getElementById("waktuSolat").innerHTML=list.map(p=>`<div class="row"><div>${p.name}</div><div class="${p.name===next?'highlight':''}">${p.time}</div></div>`).join("");
-  }catch(e){console.error(e);document.getElementById("waktuSolat").innerText="Gagal memuat data JSON.";}
+  } catch (err) {
+    document.getElementById("solat-data").innerHTML =
+      `<tr><td colspan="2">Gagal muat data dari e-Solat.</td></tr>`;
+    console.error(err);
+  }
 }
 
-function updateCountdown(){if(!nextPrayerTime)return;const diff=Math.max(0,nextPrayerTime-new Date());const h=Math.floor(diff/3600000);const m=Math.floor((diff%3600000)/60000);const s=Math.floor((diff%60000)/1000);document.getElementById("countdown").innerText=`Solat seterusnya: ${nextPrayerName} dalam ${h}j ${m}m ${s}s`; }
-
-loadWaktuSolat();
-setInterval(updateCountdown,1000);
+muatData();
 </script>
 </body>
 </html>
