@@ -1,72 +1,222 @@
 <!DOCTYPE html>
 <html lang="ms">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Waktu Solat Padang Serai</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Waktu Solat Padang Serai (KDH05) — Online</title>
 <style>
-body { font-family: Arial, sans-serif; background:#f5f7fa; text-align:center; padding:20px; }
-h1 { color:#00695c; }
-.card {
-  background:white; max-width:420px; margin:auto; border-radius:12px;
-  padding:15px; box-shadow:0 2px 10px rgba(0,0,0,0.1);
-}
-table { width:100%; border-collapse:collapse; margin-top:10px; }
-th,td { padding:8px; border-bottom:1px solid #eee; }
-th { background:#009688; color:white; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#f4fbfb; color:#072; padding:20px; }
+  .wrap { max-width:520px; margin:18px auto; }
+  h1 { margin:0 0 8px 0; color:#00695c; font-size:1.2rem; }
+  .meta { color:#2a6; margin-bottom:12px; }
+  .card { background:#fff; padding:14px; border-radius:10px; box-shadow:0 6px 18px rgba(2,40,30,0.06); }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th,td { text-align:left; padding:8px 6px; border-bottom:1px solid #f0f0f0; }
+  th { background:#00796b; color:#fff; font-weight:600; }
+  .notice { margin-top:10px; color:#b44; font-size:0.95rem; }
+  .small { font-size:0.9rem; color:#666; margin-top:8px; }
+  .btn { display:inline-block; margin-top:12px; background:#00796b;color:#fff;padding:8px 12px;border-radius:8px; text-decoration:none; }
 </style>
 </head>
 <body>
-<h1>Waktu Solat Padang Serai</h1>
-<p id="tarikh"></p>
-<div class="card">
-  <table>
-    <thead><tr><th>Waktu</th><th>Masa</th></tr></thead>
-    <tbody id="solat-data"><tr><td colspan="2">Memuat data...</td></tr></tbody>
-  </table>
-</div>
+  <div class="wrap">
+    <h1>Waktu Solat — Padang Serai (KDH05)</h1>
+    <div id="info" class="meta">Memuat data...</div>
+
+    <div class="card">
+      <table aria-live="polite">
+        <thead><tr><th>Waktu</th><th>Masa</th></tr></thead>
+        <tbody id="jadual">
+          <tr><td colspan="2">Memuatkan …</td></tr>
+        </tbody>
+      </table>
+
+      <div id="status" class="small"></div>
+      <div id="err" class="notice" style="display:none;"></div>
+      <a id="force-refresh" class="btn" href="#" style="display:none;">Kemas kini sekarang</a>
+    </div>
+
+    <p class="small">Host: GitHub Pages / Netlify disyorkan. Jika anda gunakan server sendiri, ganti `proxyUrl` dengan endpoint proxy anda.</p>
+  </div>
 
 <script>
-async function muatData() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth()+1).padStart(2,'0');
-  const day = String(now.getDate()).padStart(2,'0');
-  const today = `${year}-${month}-${day}`;
-  
-  const url = `https://www.e-solat.gov.my/index.php?r=esolatApi/takwimsolat&period=duration&zone=KDH05&year=${year}&month=${month}`;
+/*
+  Behavior:
+  1) Try direct fetch to e-Solat API (official).
+  2) If CORS/error, fallback to public CORS proxy (allorigins).
+  3) Cache monthly response in localStorage to reduce calls.
+  4) Show today's prayer times and simple status.
+*/
 
-  document.getElementById("tarikh").textContent = 
-    now.toLocaleDateString("ms-MY", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+/* CONFIG */
+const zone = "KDH05"; // zon untuk Padang Serai (Kulim/Bandar Baharu)
+const useProxy = true; // keep true to allow fallback
+const proxyHost = "https://api.allorigins.win/raw?url="; // proxy to bypass CORS (public). You may replace with your own proxy.
+const esolatBase = "https://www.e-solat.gov.my/index.php?r=esolatApi/takwimsolat&period=duration";
 
+function logErr(msg, e) {
+  console.error(msg, e);
+  const errBox = document.getElementById("err");
+  errBox.style.display = "block";
+  errBox.textContent = "Ralat: " + msg + (e ? " (lihat console untuk butiran)" : "");
+}
+
+function setStatus(s) { document.getElementById("status").textContent = s; }
+function setInfo(s) { document.getElementById("info").textContent = s; }
+
+function cacheKey(year, month, zone) { return `esolat_cache_${zone}_${year}_${month}`; }
+function nowISODate() { return new Date().toISOString().slice(0,10); }
+function prettyDateLocal(d) {
+  return new Date(d).toLocaleDateString("ms-MY", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+}
+
+/* Try fetch helper: tries direct -> proxy fallback */
+async function fetchWithFallback(url) {
+  // 1) Direct
   try {
-    const res = await fetch(url);
-    const json = await res.json();
-    const data = json.prayerTime.find(d => d.date === today);
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    // attempt to parse json
+    return await r.json();
+  } catch (directErr) {
+    console.warn("Direct fetch failed:", directErr);
+    if (!useProxy) throw directErr;
 
-    const tbody = document.getElementById("solat-data");
-    tbody.innerHTML = "";
-
-    if (data) {
-      const waktu = ["imsak","fajr","syuruk","dhuhr","asr","maghrib","isha"];
-      const nama = ["Imsak","Subuh","Syuruk","Zohor","Asar","Maghrib","Isyak"];
-      waktu.forEach((k,i)=>{
-        const row = document.createElement("tr");
-        row.innerHTML = `<td>${nama[i]}</td><td>${data[k]}</td>`;
-        tbody.appendChild(row);
-      });
-    } else {
-      tbody.innerHTML = `<tr><td colspan="2">Tiada data untuk tarikh ini.</td></tr>`;
+    // 2) Fallback via proxy
+    try {
+      const proxied = proxyHost + encodeURIComponent(url);
+      const r2 = await fetch(proxied);
+      if (!r2.ok) throw new Error("Proxy HTTP " + r2.status);
+      // allorigins/raw returns raw body (JSON); parse ourselves
+      const text = await r2.text();
+      try {
+        return JSON.parse(text);
+      } catch (parseErr) {
+        // some proxies wrap in an object; attempt to parse known wrapper shapes
+        try {
+          const wrapped = JSON.parse(text);
+          // if wrapped has contents, try to extract
+          if (wrapped && wrapped.contents) {
+            return JSON.parse(wrapped.contents);
+          }
+        } catch (_) {}
+        throw parseErr;
+      }
+    } catch (proxyErr) {
+      console.error("Proxy fetch failed:", proxyErr);
+      throw proxyErr;
     }
-
-  } catch (err) {
-    document.getElementById("solat-data").innerHTML =
-      `<tr><td colspan="2">Gagal muat data dari e-Solat.</td></tr>`;
-    console.error(err);
   }
 }
 
-muatData();
+/* Main: load month, display today's times */
+async function loadAndDisplay() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth()+1).padStart(2,"0");
+  const today = nowISODate();
+
+  setInfo(prettyDateLocal(now));
+  setStatus("Mencari data rasmi…");
+
+  const key = cacheKey(year, month, zone);
+  const cached = (() => {
+    try { return JSON.parse(localStorage.getItem(key)); } catch(e) { return null; }
+  })();
+
+  // If cached and timestamp is today or this month, use cached (but allow manual refresh)
+  const useCache = cached && cached.__fetchedAt && cached.__fetchedAt.slice(0,7) === `${year}-${month}`;
+  if (useCache) {
+    setStatus("Menggunakan data cache bulan ini (dimuat " + cached.__fetchedAt + ").");
+    renderFromMonthData(cached);
+    showForceRefresh();
+    return;
+  }
+
+  // fetch from e-Solat API
+  const url = `${esolatBase}&zone=${zone}&year=${year}&month=${month}`;
+  try {
+    setStatus("Memuat dari e-Solat...");
+    const json = await fetchWithFallback(url);
+
+    // e-Solat response format: { prayerTime: [ { date: "YYYY-MM-DD", imsak: "...", fajr: "...", ...}, ... ] }
+    if (!json || !json.prayerTime) {
+      throw new Error("Format JSON tak dijangka");
+    }
+
+    // add fetch metadata and cache (stringify minimal)
+    json.__fetchedAt = new Date().toISOString();
+    try { localStorage.setItem(key, JSON.stringify(json)); } catch(e) { console.warn("Gagal simpan cache:", e); }
+
+    setStatus("Data rasmi dimuat dan dicache.");
+    renderFromMonthData(json);
+    showForceRefresh();
+  } catch (e) {
+    logErr("Gagal muat data rasmi dari e-Solat (direct & proxy).", e);
+    // if we have any stale cache, use it as fallback
+    if (cached && cached.prayerTime) {
+      setStatus("Menggunakan cache lama kerana fetch gagal.");
+      renderFromMonthData(cached);
+      showForceRefresh();
+    } else {
+      // no data at all
+      document.getElementById("jadual").innerHTML = `<tr><td colspan="2">Tiada data tersedia.</td></tr>`;
+    }
+  }
+}
+
+/* Render table from month JSON */
+function renderFromMonthData(json) {
+  const today = nowISODate();
+  const rows = json.prayerTime || json.prayertime || json.data || [];
+  const todayObj = rows.find(r => r.date === today) || rows.find(r => r.Date === today);
+
+  const tbody = document.getElementById("jadual");
+  tbody.innerHTML = "";
+
+  if (!todayObj) {
+    tbody.innerHTML = `<tr><td colspan="2">Tiada data untuk hari ini (${today}).</td></tr>`;
+    return;
+  }
+
+  // map names from e-Solat keys to display names
+  const mapping = [
+    ["Imsak", todayObj.imsak || todayObj.imsak_time || todayObj.Imsak],
+    ["Subuh", todayObj.fajr || todayObj.fajr_time || todayObj.Subuh],
+    ["Syuruk", todayObj.syuruk || todayObj.syuruk_time || todayObj.Syuruk],
+    ["Zohor", todayObj.dhuhr || todayObj.dhuhr_time || todayObj.Zohor],
+    ["Asar", todayObj.asr || todayObj.asr_time || todayObj.Asar],
+    ["Maghrib", todayObj.maghrib || todayObj.maghrib_time || todayObj.Maghrib],
+    ["Isyak", todayObj.isha || todayObj.isha_time || todayObj.Isyak]
+  ];
+
+  mapping.forEach(([label, val]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${label}</td><td>${val || "—"}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  const fetchedAt = json.__fetchedAt || "(tidak diketahui)";
+  document.getElementById("status").textContent = `Data untuk ${today} (sumber rasmi), cache dimuat: ${fetchedAt}`;
+}
+
+/* Force refresh button logic */
+function showForceRefresh() {
+  const btn = document.getElementById("force-refresh");
+  btn.style.display = "inline-block";
+  btn.onclick = (e) => {
+    e.preventDefault();
+    // clear current month cache and reload
+    const now = new Date();
+    const k = cacheKey(now.getFullYear(), String(now.getMonth()+1).padStart(2,"0"), zone);
+    localStorage.removeItem(k);
+    document.getElementById("err").style.display = "none";
+    loadAndDisplay();
+  };
+}
+
+/* Kick off */
+loadAndDisplay();
 </script>
 </body>
 </html>
